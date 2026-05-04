@@ -9,7 +9,8 @@
 			"Type": "Runtime",
 			"LoadingPhase": "Default",
 			"AdditionalDependencies": [
-				"ChaosMover"
+				"ChaosMover",
+				"Engine"
 			]
 		}
 	],
@@ -65,7 +66,7 @@
 			"Enabled": false
 		},
 		{
-			"Name": "ChaosMover",
+			"Name": "MoverIntegrations",
 			"Enabled": true
 		}
 	]
