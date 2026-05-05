@@ -29,6 +29,5 @@ void AAfterCutCharacter::Tick(float DeltaTime)
 void AAfterCutCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
-
 }
 
