@@ -10,6 +10,7 @@ UENUM(BlueprintType)
 enum ECustomMovementMode {
 	CMOVE_None		 UMETA(Hidden),
 	CMOVE_Slide		 UMETA(DisplayName = "Slide"),
+	CMOVE_DASH	 UMETA(DisplayName = "Dash"),
 	CMOVE_MAX		 UMETA(Hidden)
 };
 
@@ -17,33 +18,6 @@ UCLASS()
 class AFTERCUT_API UAfterCutCharacterMovementComp : public UCharacterMovementComponent
 {
 	GENERATED_BODY()
-
-	class FSavedMove_AC : public FSavedMove_Character
-	{
-		typedef FSavedMove_Character Super;
-
-		// Flags
-		uint8 Saved_bWantsToSprint : 1;
-		uint8 Saved_bPreWantsToCrouch : 1;
-
-	public:
-		FSavedMove_AC();
-
-		virtual bool CanCombineWith(const FSavedMovePtr& NewMove, ACharacter* InCharacter, float MaxDelta) const override;
-		virtual void Clear() override;
-		virtual uint8 GetCompressedFlags() const override;
-		virtual void SetMoveFor(ACharacter* C, float InDeltaTime, FVector const& NewAccel, FNetworkPredictionData_Client_Character& ClientData) override;
-		virtual void PrepMoveFor(ACharacter* C) override;
-	};
-
-	class FNetworkPredictionData_Client_AC : public FNetworkPredictionData_Client_Character {
-	public:
-		typedef FNetworkPredictionData_Client_Character Super;
-
-		FNetworkPredictionData_Client_AC(const UCharacterMovementComponent& ClientMovement);
-
-		virtual FSavedMovePtr AllocateNewMove() override;
-	};
 
 public:
 	/// <summary>
@@ -61,11 +35,17 @@ public:
 	UPROPERTY(EditAnywhere, Category = "AC|Slide") float SlideSpeed = 1200.0f;
 	UPROPERTY(EditAnywhere, Category = "AC|Slide") float SlideEnterImpulse = 500.0f;
 	UPROPERTY(EditAnywhere, Category = "AC|Slide") float SlideGravityForce = 5000.0f;
-	UPROPERTY(EditAnywhere, Category = "AC|Slide") float SlideFriction = 1.3f;
+	UPROPERTY(EditAnywhere, Category = "AC|Slide") float SlideFriction = 0.1f;
 
+	/// Dash
+	UPROPERTY(EditAnywhere, Category = "AC|Crouch") float DashImpulse = 1000.0f;
+	UPROPERTY(EditAnywhere, Category = "AC|Crouch") float DashCooldownDuration = 1.0f;
+	UPROPERTY(EditAnywhere, Category = "AC|Crouch") float AuthDashCooldownDurtation = 0.9f;
 
-	bool Safe_bWantsToSprint;
-	bool Safe_bPrevWantsToCrouch;
+	
+	bool bWantsToSprint;
+	bool bPrevWantsToCrouch;
+	bool bWantsToDash;
 
 	// Transient
 	UPROPERTY(Transient) AAfterCutCharacter* AfterCutCharacterOwner;
@@ -81,14 +61,10 @@ public:
 	virtual float GetMaxSpeed() const override;
 
 public:
-	virtual FNetworkPredictionData_Client* GetPredictionData_Client() const override;
-
 	virtual bool IsMovingOnGround() const override;
 	virtual bool CanCrouchInCurrentState() const override;
 
 protected:
-	virtual void UpdateFromCompressedFlags(uint8 Flags) override;
-
 	virtual void OnMovementUpdated(float DeltaSeconds, const FVector& OldLocation, const FVector& OldVelocity) override;
 
 	virtual void UpdateCharacterStateBeforeMovement(float DeltaSeconds) override;
@@ -99,13 +75,23 @@ protected:
 /// MOVEMENT
 /// </summary>
 
-	//Slide
 private:
+	//Jump
+
+	//Slide
 	void EnterSlide(FHitResult& Floor);
 	void ExitSlide();
 	void PhysSlide(float deltaTime, int32 Iterations);
 	bool GetSlideSurface(FHitResult& Hit) const;
 	bool CanSlide(FHitResult& Hit) const;
+
+	//Dash
+	void ExecuteDash();
+	bool CanDash();
+
+	//Wallrun
+
+	//Parry Jump -- can be an attack or a movement so need super special code bullshit
 
 public:
 
@@ -118,6 +104,10 @@ public:
 
 	UFUNCTION(BlueprintCallable) void CrouchPressed();
 	UFUNCTION(BlueprintCallable) void CrouchReleased();
+
+	UFUNCTION(BlueprintCallable) void DashPressed();
+	UFUNCTION(BlueprintCallable) void DashReleased();
+
 
 	UFUNCTION(BlueprintPure) bool IsMovementMode(EMovementMode InMovementMode) const;
 

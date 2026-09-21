@@ -18,14 +18,14 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Movement) UAfterCutCharacterMovementComp* AfterCutCharacterMovementComponent;
 private:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true")) USpringArmComponent* CameraBoom;
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true")) UCameraComponent* FollowCamera;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true")) UCameraComponent* Camera;
 
 public:
 	AAfterCutCharacter(const FObjectInitializer& ObjectInitializer);
 
 public:
 	FORCEINLINE USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
-	FORCEINLINE UCameraComponent* GetFollowCamera() const { return FollowCamera; }
+	FORCEINLINE UCameraComponent* GetCamera() const { return Camera; }
 	UFUNCTION(BlueprintPure) FORCEINLINE UAfterCutCharacterMovementComp* GetAfterCutCharacterMovement() const { return AfterCutCharacterMovementComponent; }
 
 	FCollisionQueryParams GetIgnoreParams() const;
