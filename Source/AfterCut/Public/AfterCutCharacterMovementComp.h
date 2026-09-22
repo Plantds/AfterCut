@@ -93,6 +93,9 @@ private:
 
 	//Parry Jump -- can be an attack or a movement so need super special code bullshit
 
+
+	void ResetCallVeriables();
+
 public:
 
 	/// <summary>

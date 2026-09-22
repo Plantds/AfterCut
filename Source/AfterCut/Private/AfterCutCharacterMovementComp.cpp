@@ -86,6 +86,8 @@ void UAfterCutCharacterMovementComp::UpdateCharacterStateBeforeMovement(float De
 	if (IsCustomMovementMode(CMOVE_Slide) && !bWantsToCrouch)
 		ExitSlide();
 
+	ResetCallVeriables();
+
 	Super::UpdateCharacterStateBeforeMovement(DeltaSeconds);
 }
 
@@ -190,11 +192,15 @@ bool UAfterCutCharacterMovementComp::CanSlide(FHitResult& Hit) const
 
 // DASH
 
-void UAfterCutCharacterMovementComp::ExecuteDash()
+void UAfterCutCharacterMovementComp::ExecuteDash()	
 {
 	SLOG("EXECTUING DASH");
 
 	FVector LaunchVector = AfterCutCharacterOwner->GetCamera()->GetForwardVector() * 3000.0f;
+
+	LINE(UpdatedComponent->GetComponentLocation(),
+		UpdatedComponent->GetComponentLocation() + LaunchVector,
+		FColor::Blue);
 
 	AfterCutCharacterOwner->LaunchCharacter(LaunchVector, false, false);
 	bWantsToDash = false;
@@ -211,6 +217,11 @@ void UAfterCutCharacterMovementComp::ExecuteDash()
 bool UAfterCutCharacterMovementComp::CanDash()
 {
 	return IsMovingOnGround();
+}
+
+void UAfterCutCharacterMovementComp::ResetCallVeriables()
+{
+	bWantsToDash = false;
 }
 
 /// <summary>
