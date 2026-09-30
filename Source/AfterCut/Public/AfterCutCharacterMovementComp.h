@@ -88,6 +88,9 @@ private:
 	//Dash
 	void ExecuteDash();
 	bool CanDash();
+	FVector GetInputDir(bool& RUseAddativeVel, bool& RUsesCamera);
+	FVector AdjustDashAngelDependingOnFloor(FVector DashInputDir, bool UsesCamera);
+	void ApplyDash(FVector DashDir, bool IsAddative);
 
 	//Wallrun
 

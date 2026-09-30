@@ -153,7 +153,7 @@ bool UAfterCutCharacterMovementComp::GetSlideSurface(FHitResult& Hit) const
 	BestHit.ImpactPoint = FVector(99999999999999983222784.0f);
 
 	UWorld* World = UpdatedComponent->GetWorld();
-	FVector Location = UpdatedComponent->GetComponentLocation() + (UpdatedComponent->GetUpVector()*-1) * (AfterCutCharacterOwner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight()*0.5f);
+	FVector Location = UpdatedComponent->GetComponentLocation() + (UpdatedComponent->GetUpVector() * -1) * (AfterCutCharacterOwner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight()*0.5f);
 	float Radius = AfterCutCharacterOwner->GetCapsuleComponent()->GetScaledCapsuleRadius() + 0.25f;
 	TArray<AActor*> IgnoreActors = AfterCutCharacterOwner->GetIgnoreActors();
 	TArray<FHitResult> Hits;
@@ -196,27 +196,57 @@ void UAfterCutCharacterMovementComp::ExecuteDash()
 {
 	SLOG("EXECTUING DASH");
 
-	FVector LaunchVector = AfterCutCharacterOwner->GetCamera()->GetForwardVector() * 3000.0f;
+	SetMovementMode(MOVE_Falling);
 
-	LINE(UpdatedComponent->GetComponentLocation(),
-		UpdatedComponent->GetComponentLocation() + LaunchVector,
-		FColor::Blue);
-
-	AfterCutCharacterOwner->LaunchCharacter(LaunchVector, false, false);
-	bWantsToDash = false;
-
-
-	//Velocity += Acceleration.IsNearlyZero() ? AfterCutCharacterOwner->GetCamera()->GetForwardVector() * 100000.0f : 
-	//	(Acceleration.GetSafeNormal2D() + AfterCutCharacterOwner->GetCamera()->GetForwardVector()).GetSafeNormal() * 100000.0f; // Change forward here to like the angle of what forward is... so like 
-	//
-	//bWantsToDash = false;
-
-	//SetMovementMode(MOVE_Falling);
+	bool UseAddtiveVel = false;
+	bool UsesCamera = false;
+	FVector DashDir = GetInputDir(UseAddtiveVel, UsesCamera);
+	DashDir = AdjustDashAngelDependingOnFloor(DashDir,UsesCamera);
+	ApplyDash(DashDir, UseAddtiveVel);
 }
 
 bool UAfterCutCharacterMovementComp::CanDash()
 {
 	return IsMovingOnGround();
+}
+
+FVector UAfterCutCharacterMovementComp::GetInputDir(bool& RUseAddativeVel, bool& RUsesCamera)
+{
+	RUsesCamera = Acceleration.GetSafeNormal2D().Length() == 0 || Acceleration.GetSafeNormal2D().Dot(AfterCutCharacterOwner->GetCamera()->GetForwardVector().GetSafeNormal2D()) > 0.9f ? true : false;
+
+	FVector DashDir = RUsesCamera ? AfterCutCharacterOwner->GetCamera()->GetForwardVector() : Acceleration.GetSafeNormal2D();
+
+	RUseAddativeVel = UKismetMathLibrary::DegAcos(Velocity.Dot(DashDir)) <= 45.0f ? true : false; // 45 should be angle for addative and be a editable flaot value
+
+	return DashDir;
+}
+
+FVector UAfterCutCharacterMovementComp::AdjustDashAngelDependingOnFloor(FVector DashInputDir, bool UsesCamera)
+{
+	UWorld* World = UpdatedComponent->GetWorld();
+	FVector DownVector = -UpdatedComponent->GetUpVector();
+	FVector LineTraceStart = UpdatedComponent->GetComponentLocation() + DownVector * AfterCutCharacterOwner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	FVector LineTraceGround = LineTraceStart + (DownVector * 30.0f); // 30.0f should be a editable float value
+	FVector LineTraceInputDir = LineTraceStart + DashInputDir * 100.0f; // 100.0f should be a editable float value
+
+	TArray<AActor*> IgnoreActors = AfterCutCharacterOwner->GetIgnoreActors();
+	FHitResult GroundHit;
+	FHitResult InputHit;
+
+	if (!UKismetSystemLibrary::LineTraceSingle(World, LineTraceStart, LineTraceGround, ETraceTypeQuery::TraceTypeQuery2, false, IgnoreActors, EDrawDebugTrace::ForDuration, GroundHit, true) 
+		&& !UKismetSystemLibrary::LineTraceSingle(World, LineTraceStart, LineTraceInputDir, ETraceTypeQuery::TraceTypeQuery2, false, IgnoreActors, EDrawDebugTrace::ForDuration, InputHit, true))
+		return DashInputDir = AfterCutCharacterOwner->GetCapsuleComponent()->GetForwardVector().Dot(DashInputDir) < 0.0f ? DashInputDir : -DashInputDir;
+	
+	FVector correctedVector = InputHit.ImpactNormal.Dot(GroundHit.ImpactNormal) > 0.5f ? (UsesCamera ? DashInputDir + UpdatedComponent->GetUpVector() : DashInputDir).ProjectOnToNormal(InputHit.ImpactNormal) : DashInputDir;
+	correctedVector *= 100; // make sure that once we normalize it doesnt return 0
+	correctedVector.Normalize();
+	return correctedVector = UpdatedComponent->GetForwardVector().Dot(correctedVector) <= 0.0f ? -correctedVector : correctedVector;
+}
+
+void UAfterCutCharacterMovementComp::ApplyDash(FVector DashDir, bool IsAddative)
+{
+	FVector VelXY = FVector(Velocity.X,Velocity.Y,0.0f);
+	Velocity = IsAddative ? VelXY.Length() * DashDir + DashImpulse * DashDir : DashDir * DashImpulse;
 }
 
 void UAfterCutCharacterMovementComp::ResetCallVeriables()
