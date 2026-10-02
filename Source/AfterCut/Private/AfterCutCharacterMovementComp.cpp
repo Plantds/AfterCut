@@ -17,12 +17,14 @@ float MacroDuration = 2.f;
 #define LINE(x1, x2, c) DrawDebugLine(GetWorld(), x1, x2, c, !MacroDuration, MacroDuration);
 #define CAPSULE(x, c) DrawDebugCapsule(GetWorld(), x, CapHH(), CapR(), FQuat::Identity, c, !MacroDuration, MacroDuration);
 #define SLIDELOG(x) GEngine->AddOnScreenDebugMessage(30, MacroDuration ? MacroDuration : -1.f, FColor::Green, x);
+#define DASHLOG(x) GEngine->AddOnScreenDebugMessage(30, MacroDuration ? MacroDuration : -1.f, FColor::Red, x);
 #else
 #define SLOG(x)
 #define POINT(x, c)
 #define LINE(x1, x2, c)
 #define CAPSULE(x, c)
 #define SLIDELOG(x)
+#define DASHLOG(x)
 #endif
 
 /// UAfterCutCharacterMovementComp
@@ -46,6 +48,8 @@ float UAfterCutCharacterMovementComp::GetMaxSpeed() const
 	{
 	case CMOVE_Slide:
 		return SlideSpeed;
+	case CMOVE_Dash:
+		return DashImpulse;
 	default:
 		break;
 	}
@@ -73,18 +77,27 @@ bool UAfterCutCharacterMovementComp::CanCrouchInCurrentState() const
 
 void UAfterCutCharacterMovementComp::UpdateCharacterStateBeforeMovement(float DeltaSeconds)
 {
+	// Enter Movementmodes
 	if (bWantsToDash && CanDash())
-		ExecuteDash();
+		EnterDash();
 	
-	if (bWantsToCrouch && bPrevWantsToCrouch) { // sliding can be done in air to be able to slide down high angels that you cant walk on
+	if (bWantsToCrouch) { // sliding can be done in air to be able to slide down high angels that you cant walk on
 		FHitResult PotentialSlideSurface;
 		if (CanSlide(PotentialSlideSurface) && !IsCustomMovementMode(CMOVE_Slide)) {
-			EnterSlide(PotentialSlideSurface);
+			EnterSlide();
 		}
 	}
 
+	// ~ Enter Movementmodes
+
+	// Exit Movement mode
 	if (IsCustomMovementMode(CMOVE_Slide) && !bWantsToCrouch)
 		ExitSlide();
+
+	if (IsCustomMovementMode(CMOVE_Dash))
+		ExitDash();
+
+	// ~ Exit Movement mode
 
 	ResetCallVeriables();
 
@@ -100,6 +113,8 @@ void UAfterCutCharacterMovementComp::PhysCustom(float deltaTime, int32 Iteration
 	case CMOVE_Slide:
 		PhysSlide(deltaTime, Iterations);
 		break;
+	case CMOVE_Dash:
+		PhysSlide(deltaTime, Iterations);
 	default:
 		UE_LOG(LogTemp, Fatal, TEXT("Invalid Movement Mode"));
 		break;
@@ -111,40 +126,91 @@ void UAfterCutCharacterMovementComp::PhysCustom(float deltaTime, int32 Iteration
 /// </summary>
 
 // SLIDE
-
-void UAfterCutCharacterMovementComp::EnterSlide(FHitResult& Floor)
+bool UAfterCutCharacterMovementComp::CanSlide(FHitResult& Hit) const
 {
-	(void)Floor;
+	UE_LOG(LogTemp, Warning, TEXT("Velocity size is %f compared to minspeedtoslide %f"), Velocity.Size(), MinSpeedToSlide)
+	return GetSlideSurface(Hit) && Velocity.Size() > MinSpeedToSlide; // there is a surface bellow player and their vel is high enought
+}
+
+void UAfterCutCharacterMovementComp::EnterSlide()
+{
 	SLIDELOG("-- ENTER_SLIDE --");
 
-	//Velocity = Velocity.ProjectOnToNormal(Floor.ImpactNormal);
-	Velocity += Velocity.GetSafeNormal2D() * SlideEnterImpulse;
+	// impulse the player
+
 	SetMovementMode(MOVE_Custom, CMOVE_Slide);
 }
 
 void UAfterCutCharacterMovementComp::ExitSlide()
 {
-	FQuat NewRoation = FRotationMatrix::MakeFromXZ(UpdatedComponent->GetForwardVector().GetSafeNormal2D(), -AfterCutCharacterOwner->GetGravityDirection().GetSafeNormal()).ToQuat();
-	FHitResult Hit;
-	SafeMoveUpdatedComponent(FVector::ZeroVector, NewRoation, true, Hit);
-	SetMovementMode(MOVE_Walking);
-
 	SLIDELOG("-- EXIT_SLIDE --")
 }
 
 void UAfterCutCharacterMovementComp::PhysSlide(float deltaTime, int32 Iterations)
 {
-	if (deltaTime < MIN_TICK_TIME)
-		return;
 
-	FHitResult SurfaceHit;
-	if (!CanSlide(SurfaceHit)) { // If not on valid surface or to slow stop sliding (CURRENTLY WILL BE HIT CUS WELL MOVEMENT ISNT MOVING)
-		SLOG("SLIDE ENDED EARLY");
+	if (deltaTime < MIN_TICK_TIME) {
 		ExitSlide();
-		StartNewPhysics(deltaTime, Iterations);
 		return;
 	}
-	
+
+	FHitResult SlideHit;
+	if (!UpdatedComponent->IsQueryCollisionEnabled() || !CanSlide(SlideHit))
+	{
+		SetMovementMode(MOVE_Walking);
+		ExitSlide();
+		return;
+	}
+
+	bJustTeleported = false;
+	bool bCheckedFall = false;
+	bool bTriedLedgeMove = false;
+	float remainingTime = deltaTime;
+
+	const EMovementMode StartingMovementMode = MovementMode;
+	const uint8 StartingCustomMovementMode = CustomMovementMode;
+
+	// Perform the move
+	while (remainingTime >= MIN_TICK_TIME && Iterations < MaxSimulationIterations)
+	{
+		Iterations++;
+		bJustTeleported = false;
+		const float timeTick = GetSimulationTimeStep(remainingTime, Iterations);
+		remainingTime -= timeTick;
+
+		const FVector OldLocation = UpdatedComponent->GetComponentLocation();
+
+		CalcVelocity(timeTick, GroundFriction, false, GetMaxBrakingDeceleration());
+		const FVector MoveVelocity = Velocity;
+		const FVector Delta = timeTick * MoveVelocity;
+		const bool bZeroDelta = Delta.IsNearlyZero();
+		FStepDownResult StepDownResult;
+
+		MoveAlongFloor(MoveVelocity, timeTick, &StepDownResult);
+
+		if (StepDownResult.bComputedFloor)
+		{
+			CurrentFloor = StepDownResult.FloorResult;
+		}
+		else
+		{
+			FindFloor(UpdatedComponent->GetComponentLocation(), CurrentFloor, bZeroDelta, NULL);
+		}
+
+		// If we didn't move at all this iteration then abort (since future iterations will also be stuck).
+		if (UpdatedComponent->GetComponentLocation() == OldLocation)
+		{
+			remainingTime = 0.f;
+			break;
+		}
+
+		MaintainHorizontalGroundVelocity();
+	}
+
+	if (IsMovingOnGround())
+	{
+		MaintainHorizontalGroundVelocity();
+	}
 }
 
 bool UAfterCutCharacterMovementComp::GetSlideSurface(FHitResult& Hit) const
@@ -185,68 +251,24 @@ bool UAfterCutCharacterMovementComp::GetSlideSurface(FHitResult& Hit) const
 	return gotReplaced; // if not the orginal point then we have a valid hit so return true else return false
 }
 
-bool UAfterCutCharacterMovementComp::CanSlide(FHitResult& Hit) const
-{
-	return GetSlideSurface(Hit) && Velocity.SizeSquared() > pow(MinSpeedToSlide, 2); // there is a surface bellow player and their vel is high enought
-}
-
 // DASH
-
-void UAfterCutCharacterMovementComp::ExecuteDash()	
-{
-	SLOG("EXECTUING DASH");
-
-	SetMovementMode(MOVE_Falling);
-
-	bool UseAddtiveVel = false;
-	bool UsesCamera = false;
-	FVector DashDir = GetInputDir(UseAddtiveVel, UsesCamera);
-	DashDir = AdjustDashAngelDependingOnFloor(DashDir,UsesCamera);
-	ApplyDash(DashDir, UseAddtiveVel);
-}
-
 bool UAfterCutCharacterMovementComp::CanDash()
 {
-	return IsMovingOnGround();
+	return true;
 }
 
-FVector UAfterCutCharacterMovementComp::GetInputDir(bool& RUseAddativeVel, bool& RUsesCamera)
+
+void UAfterCutCharacterMovementComp::EnterDash()
 {
-	RUsesCamera = Acceleration.GetSafeNormal2D().Length() == 0 || Acceleration.GetSafeNormal2D().Dot(AfterCutCharacterOwner->GetCamera()->GetForwardVector().GetSafeNormal2D()) > 0.9f ? true : false;
-
-	FVector DashDir = RUsesCamera ? AfterCutCharacterOwner->GetCamera()->GetForwardVector() : Acceleration.GetSafeNormal2D();
-
-	RUseAddativeVel = UKismetMathLibrary::DegAcos(Velocity.Dot(DashDir)) <= 45.0f ? true : false; // 45 should be angle for addative and be a editable flaot value
-
-	return DashDir;
+	DASHLOG("-- ENTER_DASH --");
+	SetMovementMode(MOVE_Custom, CMOVE_Dash);
 }
 
-FVector UAfterCutCharacterMovementComp::AdjustDashAngelDependingOnFloor(FVector DashInputDir, bool UsesCamera)
+void UAfterCutCharacterMovementComp::ExitDash()
 {
-	UWorld* World = UpdatedComponent->GetWorld();
-	FVector DownVector = -UpdatedComponent->GetUpVector();
-	FVector LineTraceStart = UpdatedComponent->GetComponentLocation() + DownVector * AfterCutCharacterOwner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
-	FVector LineTraceGround = LineTraceStart + (DownVector * 30.0f); // 30.0f should be a editable float value
-	FVector LineTraceInputDir = LineTraceStart + DashInputDir * 100.0f; // 100.0f should be a editable float value
+	DASHLOG("-- EXIT_DASH --");
+	SetMovementMode(MOVE_Walking);
 
-	TArray<AActor*> IgnoreActors = AfterCutCharacterOwner->GetIgnoreActors();
-	FHitResult GroundHit;
-	FHitResult InputHit;
-
-	if (!UKismetSystemLibrary::LineTraceSingle(World, LineTraceStart, LineTraceGround, ETraceTypeQuery::TraceTypeQuery2, false, IgnoreActors, EDrawDebugTrace::ForDuration, GroundHit, true) 
-		&& !UKismetSystemLibrary::LineTraceSingle(World, LineTraceStart, LineTraceInputDir, ETraceTypeQuery::TraceTypeQuery2, false, IgnoreActors, EDrawDebugTrace::ForDuration, InputHit, true))
-		return DashInputDir = AfterCutCharacterOwner->GetCapsuleComponent()->GetForwardVector().Dot(DashInputDir) < 0.0f ? DashInputDir : -DashInputDir;
-	
-	FVector correctedVector = InputHit.ImpactNormal.Dot(GroundHit.ImpactNormal) > 0.5f ? (UsesCamera ? DashInputDir + UpdatedComponent->GetUpVector() : DashInputDir).ProjectOnToNormal(InputHit.ImpactNormal) : DashInputDir;
-	correctedVector *= 100; // make sure that once we normalize it doesnt return 0
-	correctedVector.Normalize();
-	return correctedVector = UpdatedComponent->GetForwardVector().Dot(correctedVector) <= 0.0f ? -correctedVector : correctedVector;
-}
-
-void UAfterCutCharacterMovementComp::ApplyDash(FVector DashDir, bool IsAddative)
-{
-	FVector VelXY = FVector(Velocity.X,Velocity.Y,0.0f);
-	Velocity = IsAddative ? VelXY.Length() * DashDir + DashImpulse * DashDir : DashDir * DashImpulse;
 }
 
 void UAfterCutCharacterMovementComp::ResetCallVeriables()

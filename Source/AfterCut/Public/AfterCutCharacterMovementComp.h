@@ -10,7 +10,8 @@ UENUM(BlueprintType)
 enum ECustomMovementMode {
 	CMOVE_None		 UMETA(Hidden),
 	CMOVE_Slide		 UMETA(DisplayName = "Slide"),
-	CMOVE_DASH	 UMETA(DisplayName = "Dash"),
+	CMOVE_Dash		 UMETA(DisplayName = "Dash"),
+	CMOVE_Wallrun	 UMETA(DisplayName = "Wallrun"),
 	CMOVE_MAX		 UMETA(Hidden)
 };
 
@@ -38,11 +39,8 @@ public:
 	UPROPERTY(EditAnywhere, Category = "AC|Slide") float SlideFriction = 0.1f;
 
 	/// Dash
-	UPROPERTY(EditAnywhere, Category = "AC|Crouch") float DashImpulse = 1000.0f;
-	UPROPERTY(EditAnywhere, Category = "AC|Crouch") float DashCooldownDuration = 1.0f;
-	UPROPERTY(EditAnywhere, Category = "AC|Crouch") float AuthDashCooldownDurtation = 0.9f;
+	UPROPERTY(EditAnywhere, Category = "AC|Dash") float DashImpulse = 1500.0f;
 
-	
 	bool bWantsToSprint;
 	bool bPrevWantsToCrouch;
 	bool bWantsToDash;
@@ -79,20 +77,24 @@ private:
 	//Jump
 
 	//Slide
-	void EnterSlide(FHitResult& Floor);
+	bool CanSlide(FHitResult& Hit) const;
+	void EnterSlide();
 	void ExitSlide();
 	void PhysSlide(float deltaTime, int32 Iterations);
+
 	bool GetSlideSurface(FHitResult& Hit) const;
-	bool CanSlide(FHitResult& Hit) const;
 
 	//Dash
-	void ExecuteDash();
 	bool CanDash();
-	FVector GetInputDir(bool& RUseAddativeVel, bool& RUsesCamera);
-	FVector AdjustDashAngelDependingOnFloor(FVector DashInputDir, bool UsesCamera);
-	void ApplyDash(FVector DashDir, bool IsAddative);
+	void EnterDash();
+	void ExitDash();
+	void PhysDash();
 
 	//Wallrun
+	bool CanWallrun();
+	void EnterWallrun();
+	void ExitWallrun();
+	void PhysWallrun();
 
 	//Parry Jump -- can be an attack or a movement so need super special code bullshit
 
