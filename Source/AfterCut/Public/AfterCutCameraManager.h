@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Camera/PlayerCameraManager.h"
+#include "AfterCut/Public/PlayerSettings.h"
 
 #include "AfterCutCameraManager.generated.h"
 
@@ -11,12 +12,12 @@ class AFTERCUT_API AAfterCutCameraManager : public APlayerCameraManager
 	GENERATED_BODY()
 
 	typedef APlayerCameraManager Super;
-
-	UPROPERTY(EditDefaultsOnly, Category = "AC|Crouch") float CrouchBlendDuration = 0.1f;
+	
 	float CrouchBlendTime = 0.0f;
 
 public:
 	AAfterCutCameraManager();
 
 	virtual void UpdateViewTarget(FTViewTarget& OutVT, float DeltaTime) override;
+	
 };

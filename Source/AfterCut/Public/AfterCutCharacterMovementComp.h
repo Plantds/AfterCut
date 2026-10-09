@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "AfterCut/Public/PlayerSettings.h"
 
 #include "AfterCut.h"
 #include "AfterCutCharacterMovementComp.generated.h"
@@ -21,26 +22,6 @@ class AFTERCUT_API UAfterCutCharacterMovementComp : public UCharacterMovementCom
 	GENERATED_BODY()
 
 public:
-	/// <summary>
-	///  Blueprint callable or accessable variables
-	/// </summary>
-	/// Sprint
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AC|Sprint") bool ToggleSprint = false;
-	UPROPERTY(EditDefaultsOnly, Category = "AC|Sprint") float SprintSpeed = 1000.0f;
-
-	/// Crouch
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AC|Crouch") bool ToggleCrouch = false;
-
-	/// Slide
-	UPROPERTY(EditAnywhere, Category = "AC|Slide") float MinSpeedToSlide = 350.0f;
-	UPROPERTY(EditAnywhere, Category = "AC|Slide") float SlideSpeed = 1200.0f;
-	UPROPERTY(EditAnywhere, Category = "AC|Slide") float SlideEnterImpulse = 500.0f;
-	UPROPERTY(EditAnywhere, Category = "AC|Slide") float SlideGravityForce = 5000.0f;
-	UPROPERTY(EditAnywhere, Category = "AC|Slide") float SlideFriction = 0.1f;
-
-	/// Dash
-	UPROPERTY(EditAnywhere, Category = "AC|Dash") float DashImpulse = 1500.0f;
-
 	bool bWantsToSprint;
 	bool bPrevWantsToCrouch;
 	bool bWantsToDash;
@@ -55,8 +36,10 @@ protected:
 	virtual void InitializeComponent() override;
 
 public:
-
+	virtual float GetMaxBrakingDeceleration() const override;
 	virtual float GetMaxSpeed() const override;
+	virtual float GetGroundFriction() const;
+	virtual float GetMaxAcceleration() const override;
 
 public:
 	virtual bool IsMovingOnGround() const override;
@@ -74,6 +57,10 @@ protected:
 /// </summary>
 
 private:
+	virtual void MoveAlongFloor(const FVector& InVelocity, float DeltaSeconds, FStepDownResult* OutStepDownResult = NULL) override;
+	virtual void CalcVelocity(float DeltaTime, float Friction, bool bFluid, float BrakingDeceleration) override;
+	virtual bool ApplyRequestedMove(float DeltaTime, float MaxAccel, float MaxSpeed, float Friction, float BrakingDeceleration, FVector& OutAcceleration, float& OutRequestedSpeed) override;
+
 	//Jump
 
 	//Slide
@@ -88,7 +75,7 @@ private:
 	bool CanDash();
 	void EnterDash();
 	void ExitDash();
-	void PhysDash();
+	void PhysDash(float deltaTime, int32 Iterations);
 
 	//Wallrun
 	bool CanWallrun();

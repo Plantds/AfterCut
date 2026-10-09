@@ -19,17 +19,17 @@ void AAfterCutCameraManager::UpdateViewTarget(FTViewTarget& OutVT, float DeltaTi
 		FVector TargetCrouchOffset = FVector(
 			0.0f,
 			0.0f,
-			ACCMC->GetCrouchedHalfHeight() - AfterCutCharacter->GetClass()->GetDefaultObject<ACharacter>()->GetCapsuleComponent()->GetScaledCapsuleHalfHeight()
+			ACCMC->GetCrouchedHalfHeight() - AfterCutCharacter->GetClass()->GetDefaultObject<ACharacter>()->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() - AfterCutCharacter->GetPlayerSettings()->CrouchBlendDuration
 		);
 
-		FVector Offset = FMath::Lerp(FVector::ZeroVector, TargetCrouchOffset, FMath::Clamp(CrouchBlendTime / CrouchBlendDuration, 0.0f, 1.0f));
+		FVector Offset = FMath::Lerp(FVector::ZeroVector, TargetCrouchOffset, FMath::Clamp(CrouchBlendTime / AfterCutCharacter->GetPlayerSettings()->CrouchBlendDuration, 0.0f, 1.0f));
 
 		if (ACCMC->IsCrouching()) {
-			CrouchBlendTime = FMath::Clamp(CrouchBlendTime + DeltaTime, 0.0f, CrouchBlendDuration);
+			CrouchBlendTime = FMath::Clamp(CrouchBlendTime + DeltaTime, 0.0f, AfterCutCharacter->GetPlayerSettings()->CrouchBlendDuration);
 			Offset -= TargetCrouchOffset;
 		}
 		else {
-			CrouchBlendTime = FMath::Clamp(CrouchBlendTime - DeltaTime, 0.0f, CrouchBlendDuration);
+			CrouchBlendTime = FMath::Clamp(CrouchBlendTime - DeltaTime, 0.0f, AfterCutCharacter->GetPlayerSettings()->CrouchBlendDuration);
 		}
 
 		if (ACCMC->IsMovingOnGround())
