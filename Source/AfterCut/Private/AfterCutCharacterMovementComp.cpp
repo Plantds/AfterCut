@@ -3,6 +3,7 @@
 #include "AfterCutCharacter.h"
 #include "NetworkPredictionCVars.h"
 
+#include "Components/ArrowComponent.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/TextRenderComponent.h"
@@ -11,6 +12,7 @@
 #include "Net/UnrealNetwork.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Kismet/KismetMathLibrary.h"
+#include "Storage/Nodes/FileEntry.h"
 
 // Helper Macros
 #if 1
@@ -36,11 +38,18 @@ UAfterCutCharacterMovementComp::UAfterCutCharacterMovementComp()
 	NavAgentProps.bCanCrouch = true;
 }
 
+void UAfterCutCharacterMovementComp::TickComponent(float DeltaTime, ELevelTick TickType,
+	FActorComponentTickFunction* ThisTickFunction)
+{
+	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+}
+
 void UAfterCutCharacterMovementComp::InitializeComponent()
 {
 	Super::InitializeComponent();
 
 	AfterCutCharacterOwner = Cast<AAfterCutCharacter>(GetOwner());
+	Settings = AfterCutCharacterOwner->GetPlayerSettings();
 }
 
 float UAfterCutCharacterMovementComp::GetMaxBrakingDeceleration() const
@@ -48,9 +57,9 @@ float UAfterCutCharacterMovementComp::GetMaxBrakingDeceleration() const
 	switch (CustomMovementMode)
 	{
 	case CMOVE_Slide:
-		return AfterCutCharacterOwner->GetPlayerSettings()->SlideBrakingDeceleration;
+		return Settings->SlideBrakingDeceleration;
 	case CMOVE_Dash:
-		return AfterCutCharacterOwner->GetPlayerSettings()->DashBrakingDeceleration;
+		return Settings->DashBrakingDeceleration;
 	default:
 		break;
 	}
@@ -60,14 +69,14 @@ float UAfterCutCharacterMovementComp::GetMaxBrakingDeceleration() const
 
 float UAfterCutCharacterMovementComp::GetMaxSpeed() const
 {
-	if (IsMovementMode(MOVE_Walking) && bWantsToSprint && !IsCrouching()) return AfterCutCharacterOwner->GetPlayerSettings()->SprintSpeed;
+	if (IsMovementMode(MOVE_Walking) && bWantsToSprint && !IsCrouching()) return Settings->SprintSpeed;
 
 	switch (CustomMovementMode)
 	{
 	case CMOVE_Slide:
-		return AfterCutCharacterOwner->GetPlayerSettings()->SlideSpeed;
+		return Settings->SlideSpeed;
 	case CMOVE_Dash:
-		return AfterCutCharacterOwner->GetPlayerSettings()->DashImpulse;
+		return Settings->DashImpulse;
 	default:
 		break;
 	}
@@ -80,9 +89,9 @@ float UAfterCutCharacterMovementComp::GetGroundFriction() const
 	switch (CustomMovementMode)
 	{
 	case CMOVE_Slide:
-		return AfterCutCharacterOwner->GetPlayerSettings()->SlideFriction;
+		return Settings->SlideFriction;
 	case CMOVE_Dash:
-		return AfterCutCharacterOwner->GetPlayerSettings()->DashFriction;
+		return Settings->DashFriction;
 	default:
 		return GroundFriction;
 		break;
@@ -95,9 +104,9 @@ float UAfterCutCharacterMovementComp::GetMaxAcceleration() const
 	switch (CustomMovementMode)
 	{
 	case CMOVE_Slide:
-		return AfterCutCharacterOwner->GetPlayerSettings()->SlideMaxAcceleration;
+		return Settings->SlideMaxAcceleration;
 	case CMOVE_Dash:
-		return AfterCutCharacterOwner->GetPlayerSettings()->DashMaxAcceleration;
+		return Settings->DashMaxAcceleration;
 	default:
 		break;
 	}
@@ -105,11 +114,14 @@ float UAfterCutCharacterMovementComp::GetMaxAcceleration() const
 	return Super::GetMaxAcceleration();
 }
 
-void UAfterCutCharacterMovementComp::OnMovementUpdated(float DeltaSeconds, const FVector& OldLocation, const FVector& OldVelocity)
+bool UAfterCutCharacterMovementComp::CanAttemptJump() const
 {
-	Super::OnMovementUpdated(DeltaSeconds, OldLocation, OldVelocity);
-	
-	bPrevWantsToCrouch = bWantsToCrouch;
+	return Super::CanAttemptJump();
+}
+
+bool UAfterCutCharacterMovementComp::DoJump(bool bReplayingMoves, float _deltatime)
+{
+	return Super::DoJump(bReplayingMoves, _deltatime);
 }
 
 bool UAfterCutCharacterMovementComp::IsMovingOnGround() const
@@ -124,8 +136,6 @@ bool UAfterCutCharacterMovementComp::CanCrouchInCurrentState() const
 
 void UAfterCutCharacterMovementComp::UpdateCharacterStateBeforeMovement(float DeltaSeconds)
 {
-	GEngine->AddOnScreenDebugMessage(1, 1.0f, FColor::Yellow, FString::Printf(TEXT("Allowed Floor Angle Is; %f"),GetWalkableFloorAngle()));
-	
 	// Enter Movementmodes
 	if (bWantsToDash && CanDash())
 		EnterDash();
@@ -133,15 +143,15 @@ void UAfterCutCharacterMovementComp::UpdateCharacterStateBeforeMovement(float De
 	if (bWantsToCrouch) { // sliding can be done in air to be able to slide down high angels that you cant walk on
 		FHitResult PotentialSlideSurface;
 		if (CanSlide(PotentialSlideSurface) && !IsCustomMovementMode(CMOVE_Slide)) {
-			EnterSlide();
+			SetMovementMode(MOVE_Custom, CMOVE_Slide);
 		}
 	}
 
 	// ~ Enter Movementmodes
 
 	// Exit Movement mode
-	if (IsCustomMovementMode(CMOVE_Slide) && !bWantsToCrouch)
-		ExitSlide();
+	//if (IsCustomMovementMode(CMOVE_Slide) && !bWantsToCrouch)
+	//	SetMovementMode(MOVE_Walking);
 
 	if (IsCustomMovementMode(CMOVE_Dash))
 		ExitDash();
@@ -151,6 +161,26 @@ void UAfterCutCharacterMovementComp::UpdateCharacterStateBeforeMovement(float De
 	ResetCallVeriables();
 
 	Super::UpdateCharacterStateBeforeMovement(DeltaSeconds);
+}
+
+void UAfterCutCharacterMovementComp::UpdateCharacterStateAfterMovement(float DeltaSeconds)
+{
+	Super::UpdateCharacterStateAfterMovement(DeltaSeconds);
+}
+
+void UAfterCutCharacterMovementComp::OnMovementUpdated(float DeltaSeconds, const FVector& OldLocation, const FVector& OldVelocity)
+{
+	Super::OnMovementUpdated(DeltaSeconds, OldLocation, OldVelocity);
+	
+	bPrevWantsToCrouch = bWantsToCrouch;
+}
+
+void UAfterCutCharacterMovementComp::OnMovementModeChanged(EMovementMode PreviousMovementMode, uint8 PreviousCustomMode)
+{
+	Super::OnMovementModeChanged(PreviousMovementMode, PreviousCustomMode);
+	
+	//if (PreviousMovementMode == MOVE_Custom && PreviousCustomMode == CMOVE_Slide) ExitSlide();
+	if (IsCustomMovementMode(CMOVE_Slide)) EnterSlide();
 }
 
 void UAfterCutCharacterMovementComp::PhysCustom(float deltaTime, int32 Iterations)
@@ -269,7 +299,7 @@ void UAfterCutCharacterMovementComp::CalcVelocity(float DeltaTime, float Frictio
 		bZeroRequestedAcceleration = false;
 	}
 
-	if (bForceMaxAccel)
+	if (bForceMaxAccel && !IsCustomMovementMode(CMOVE_Slide))
 	{
 		// Force acceleration at full speed.
 		// In consideration order for direction: Acceleration, then Velocity, then Pawn's rotation.
@@ -394,38 +424,37 @@ bool UAfterCutCharacterMovementComp::ApplyRequestedMove(float DeltaTime, float M
 // SLIDE
 bool UAfterCutCharacterMovementComp::CanSlide(FHitResult& Hit) const
 {
-	return GetSlideSurface(Hit) && Velocity.Size() > AfterCutCharacterOwner->GetPlayerSettings()->MinSpeedToSlide; // there is a surface bellow player and their vel is high enought
+	GEngine->AddOnScreenDebugMessage(88, 3.0f, FColor::Red, 
+			FString::Printf(TEXT("Vel.S > MinSpeed: %s and/or Surface is: %s"), 
+				Velocity.Size() > Settings->MinSpeedToSlide ? TEXT("true") : TEXT("false"), 
+				GetSlideSurface(Hit) ? TEXT("true") : TEXT("false")));
+	return GetSlideSurface(Hit) && Velocity.Size() > Settings->MinSpeedToSlide; // there is a surface bellow player and their vel is high enought
 }
 
+UArrowComponent* VelArrow;
 void UAfterCutCharacterMovementComp::EnterSlide()
 {
 	SLIDELOG("-- ENTER_SLIDE --");
 	
-	SetWalkableFloorAngle(AfterCutCharacterOwner->GetPlayerSettings()->MaxFloorAngleForSlide);
+	//SetWalkableFloorAngle(Settings->MaxFloorAngleForSlide);
 	FStepDownResult StepDownResult;
-	FindFloor(UpdatedComponent->GetComponentLocation(), StepDownResult.FloorResult, false, NULL);
-	CurrentFloor = StepDownResult.FloorResult;
+	if (Velocity.Size() < Settings->SlideEnterImpulse)
+		Velocity = Velocity.GetSafeNormal2D() * Settings->SlideEnterImpulse;
 	
-	if (Velocity.Size() < AfterCutCharacterOwner->GetPlayerSettings()->SlideSpeed) {
-		FVector NewV = Velocity.GetSafeNormal() * AfterCutCharacterOwner->GetPlayerSettings()->SlideSpeed;
-		NewV = UKismetMathLibrary::ProjectVectorOnToPlane(NewV,CurrentFloor.HitResult.ImpactNormal);
-		MoveAlongFloor(NewV,0.1f, NULL);
-		UKismetSystemLibrary::DrawDebugArrow(GetWorld(), UpdatedComponent->GetComponentLocation(), UpdatedComponent->GetComponentLocation() + (Velocity.GetSafeNormal() * 100.0f), 3.0f , FColor::Red, 30.0f, 3.0f);
-	}
-
-	SetMovementMode(MOVE_Custom, CMOVE_Slide);
+	FindFloor(UpdatedComponent->GetComponentLocation(), StepDownResult.FloorResult, false, NULL);
 }
 
 void UAfterCutCharacterMovementComp::ExitSlide()
 {
-	SetWalkableFloorAngle(45.0f);
-
+	//SetWalkableFloorAngle(45.0f);
+	
 	SLIDELOG("-- EXIT_SLIDE --")
 }
 
 void UAfterCutCharacterMovementComp::PhysSlide(float deltaTime, int32 Iterations)
 {
 	if (deltaTime < MIN_TICK_TIME) {
+		GEngine->AddOnScreenDebugMessage(1588, 3.0f, FColor::Red, FString("deltaTime was less then MIN_TICK_TIME" ));
 		ExitSlide();
 		return;
 	}
@@ -433,6 +462,9 @@ void UAfterCutCharacterMovementComp::PhysSlide(float deltaTime, int32 Iterations
 	FHitResult SlideHit;
 	if (!UpdatedComponent->IsQueryCollisionEnabled() || !CanSlide(SlideHit))
 	{
+		GEngine->AddOnScreenDebugMessage(1588, 3.0f, FColor::Red, 
+			FString::Printf(TEXT("IsQueryCollisionEnabled() is %s and CanSlide() is %s"), 
+				!UpdatedComponent->IsQueryCollisionEnabled() ? TEXT("true") :  TEXT("false"), !CanSlide(SlideHit) ? TEXT("true") : TEXT("false") ) );
 		SetMovementMode(MOVE_Walking);
 		ExitSlide();
 		return;
@@ -445,7 +477,7 @@ void UAfterCutCharacterMovementComp::PhysSlide(float deltaTime, int32 Iterations
 
 	const EMovementMode StartingMovementMode = MovementMode;
 	const uint8 StartingCustomMovementMode = CustomMovementMode;
-
+	
 	// Perform the move
 	while (remainingTime >= MIN_TICK_TIME && Iterations < MaxSimulationIterations)
 	{
@@ -453,17 +485,79 @@ void UAfterCutCharacterMovementComp::PhysSlide(float deltaTime, int32 Iterations
 		bJustTeleported = false;
 		const float timeTick = GetSimulationTimeStep(remainingTime, Iterations);
 		remainingTime -= timeTick;
-
+		
+		// Save current values
+		UPrimitiveComponent * const OldBase = GetMovementBase();
+		const FVector PreviousBaseLocation = (OldBase != NULL) ? OldBase->GetComponentLocation() : FVector::ZeroVector;
 		const FVector OldLocation = UpdatedComponent->GetComponentLocation();
+		const FFindFloorResult OldFloor = CurrentFloor;
+		
+		// Ensure velocity is horizontal.
+		MaintainHorizontalGroundVelocity();
+		const FVector OldVelocity = Velocity;
+		Acceleration = FVector::VectorPlaneProject(Acceleration, -GetGravityDirection());
 
-		CalcVelocity(timeTick, GetGroundFriction(), true, GetMaxBrakingDeceleration());
+		// CUSTOM VEL AND ACCEL CALCUALTIONS
+		//Velocity = Velocity.GetSafeNormal() * (Velocity.Size() - 1.0f);
+		//Velocity = Velocity + ((-Settings->SlideFriction) * Velocity) * remainingTime; 
+		
+		FVector NewV = UKismetMathLibrary::ProjectVectorOnToPlane(Velocity, OldFloor.HitResult.Normal);
+		float D = NewV.GetSafeNormal() | GetGravityDirection();
+
+		FVector before = Velocity;
+		
+		Velocity = D > 0.0f ? Velocity.GetSafeNormal() * (Velocity.Size() + ((1.0f + Settings->SlideSlopeGain) + (D * Settings->SlideSlopeAngleMulti) ) * deltaTime) 
+					: Velocity.GetSafeNormal() * (Velocity.Size() - ((1.0f - Settings->SlideSlopeLoss) + ((1.0f - D) * Settings->SlideSlopeAngleMulti) ) * deltaTime) ;
+
+		Velocity = UKismetMathLibrary::RotateAngleAxis(Velocity, AfterCutCharacterOwner->GetMovementVector2D().X , UpdatedComponent->GetUpVector());
+		
+		//Velocity += GetGravityDirection() * GravityScale;
+		//CalcVelocity(deltaTime, Settings->SlideFriction,false, GetMaxBrakingDeceleration());
+		
+		FVector after = Velocity;
+		
+		FVector a = before - after;
+		
+		GEngine->AddOnScreenDebugMessage(66, 3.0f, FColor::Cyan, 
+			FString::Printf(TEXT("the loss/gain is %f"), a.Size()));
+		
+		// Compute move parameters
 		const FVector MoveVelocity = Velocity;
 		const FVector Delta = timeTick * MoveVelocity;
 		const bool bZeroDelta = Delta.IsNearlyZero();
 		FStepDownResult StepDownResult;
+		
+		if ( bZeroDelta )
+		{
+			remainingTime = 0.f;
+		}
+		else
+		{
+			// try to move forward
+			MoveAlongFloor(MoveVelocity, timeTick, &StepDownResult);
 
-		MoveAlongFloor(MoveVelocity, timeTick, &StepDownResult);
-
+			if (IsSwimming()) //just entered water
+			{
+				StartSwimming(OldLocation, OldVelocity, timeTick, remainingTime, Iterations);
+				return;
+			}
+			else if (MovementMode != StartingMovementMode || CustomMovementMode != StartingCustomMovementMode)
+			{
+				// pawn ended up in a different mode, probably due to the step-up-and-over flow
+				// let's refund the estimated unused time (if any) and keep moving in the new mode
+				const float DesiredDist = Delta.Size();
+				if (DesiredDist > UE_KINDA_SMALL_NUMBER)
+				{
+					const float ActualDist = ProjectToGravityFloor(UpdatedComponent->GetComponentLocation() - OldLocation).Size();
+					remainingTime += timeTick * (1.f - FMath::Min(1.f,ActualDist/DesiredDist));
+				}
+				StartNewPhysics(remainingTime,Iterations);
+				return;
+			}
+		}
+		
+		// Update floor.
+		// StepUp might have already done it for us.
 		if (StepDownResult.bComputedFloor)
 		{
 			CurrentFloor = StepDownResult.FloorResult;
@@ -472,20 +566,6 @@ void UAfterCutCharacterMovementComp::PhysSlide(float deltaTime, int32 Iterations
 		{
 			FindFloor(UpdatedComponent->GetComponentLocation(), CurrentFloor, bZeroDelta, NULL);
 		}
-
-		// If we didn't move at all this iteration then abort (since future iterations will also be stuck).
-		if (UpdatedComponent->GetComponentLocation() == OldLocation)
-		{
-			remainingTime = 0.f;
-			break;
-		}
-
-		MaintainHorizontalGroundVelocity();
-	}
-
-	if (IsMovingOnGround())
-	{
-		MaintainHorizontalGroundVelocity();
 	}
 }
 
@@ -507,7 +587,7 @@ bool UAfterCutCharacterMovementComp::GetSlideSurface(FHitResult& Hit) const
 		// check if the floor you are standing on isnt to steep to slide on, ie not a wall
 		float FloorDot = FVector::DotProduct(hit.ImpactNormal, UpdatedComponent->GetUpVector());
 		float FloorAngel = UKismetMathLibrary::DegAcos(FloorDot);
-		if (FloorAngel >= AfterCutCharacterOwner->GetPlayerSettings()->MaxFloorAngleForSlide) {
+		if (FloorAngel >= Settings->MaxFloorAngleForSlide) {
 			UE_LOG(LogTemp, Error, TEXT("Floor angel failed check"));
 			continue;
 		}
@@ -563,7 +643,7 @@ void UAfterCutCharacterMovementComp::ResetCallVeriables()
 
 void UAfterCutCharacterMovementComp::SprintPressed()
 {
-	if (AfterCutCharacterOwner->GetPlayerSettings()->ToggleSprint)
+	if (Settings->ToggleSprint)
 		bWantsToSprint = !bWantsToSprint;
 	else
 		bWantsToSprint = true;
@@ -571,13 +651,13 @@ void UAfterCutCharacterMovementComp::SprintPressed()
 
 void UAfterCutCharacterMovementComp::SprintReleased()
 {
-	if(!AfterCutCharacterOwner->GetPlayerSettings()->ToggleSprint)
+	if(!Settings->ToggleSprint)
 		bWantsToSprint = false;
 }
 
 void UAfterCutCharacterMovementComp::CrouchPressed()
 {
-	if (AfterCutCharacterOwner->GetPlayerSettings()->ToggleCrouch)
+	if (Settings->ToggleCrouch)
 		bWantsToCrouch = !bWantsToCrouch;
 	else
 		bWantsToCrouch = true;
@@ -585,7 +665,7 @@ void UAfterCutCharacterMovementComp::CrouchPressed()
 
 void UAfterCutCharacterMovementComp::CrouchReleased()
 {
-	if(!AfterCutCharacterOwner->GetPlayerSettings()->ToggleCrouch)
+	if(!Settings->ToggleCrouch)
 		bWantsToCrouch = false;
 }
 

@@ -60,7 +60,6 @@ void AAfterCutCharacter::ACMove(const FInputActionValue& Value)
 	FVector2D Move = Value.Get<FVector2D>();
 	
 	MoveVector2D = Move;
-	
 	AddMovementInput(GetCapsuleComponent()->GetRightVector(), Move.X);
 	AddMovementInput(GetCapsuleComponent()->GetForwardVector(), Move.Y);
 }

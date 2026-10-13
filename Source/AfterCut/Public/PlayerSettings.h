@@ -53,6 +53,10 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Movement|Slide") float SlideBrakingDeceleration = 3.0f;
 	UPROPERTY(EditAnywhere, Category = "Movement|Slide") float SlideMaxAcceleration = 2048.0f;
 	UPROPERTY(EditAnywhere, Category = "Movement|Slide") float MaxFloorAngleForSlide = 70.5f;
+	UPROPERTY(EditAnywhere, Category = "Movement|Slide") float SlideSlopeGain = 10.0f;
+	UPROPERTY(EditAnywhere, Category = "Movement|Slide") float SlideSlopeLoss = 10.0f;
+	UPROPERTY(EditAnywhere, Category = "Movement|Slide") float SlideSlopeAngleMulti = 1.0f;
+	
 
 	/// Dash
 	UPROPERTY(EditAnywhere, Category = "Movement|Dash") float DashImpulse = 1500.0f;
