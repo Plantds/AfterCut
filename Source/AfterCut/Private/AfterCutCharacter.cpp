@@ -18,6 +18,7 @@ AAfterCutCharacter::AAfterCutCharacter(const FObjectInitializer& ObjectInitializ
 	Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("PlayerCamera"));
 	Camera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
 	Camera->bUsePawnControlRotation = true;
+	
 }
 
 void AAfterCutCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -45,7 +46,6 @@ void AAfterCutCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 	Input->BindAction(PlayerSettings->SprintAction, ETriggerEvent::Completed, this, &AAfterCutCharacter::ACSprintEnded);
 
 	Input->BindAction(PlayerSettings->DashAction, ETriggerEvent::Triggered, this, &AAfterCutCharacter::ACDash);
-
 }
 
 void AAfterCutCharacter::ACLook(const FInputActionValue& Value)

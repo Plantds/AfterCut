@@ -7,6 +7,7 @@
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/TextRenderComponent.h"
+#include "Dataflow/DataflowEngineUtil.h"
 #include "Engine/TextRenderActor.h"
 #include "GameFramework/Character.h"
 #include "Net/UnrealNetwork.h"
@@ -424,17 +425,20 @@ bool UAfterCutCharacterMovementComp::ApplyRequestedMove(float DeltaTime, float M
 // SLIDE
 bool UAfterCutCharacterMovementComp::CanSlide(FHitResult& Hit) const
 {
-	GEngine->AddOnScreenDebugMessage(88, 3.0f, FColor::Red, 
-			FString::Printf(TEXT("Vel.S > MinSpeed: %s and/or Surface is: %s"), 
-				Velocity.Size() > Settings->MinSpeedToSlide ? TEXT("true") : TEXT("false"), 
-				GetSlideSurface(Hit) ? TEXT("true") : TEXT("false")));
 	return GetSlideSurface(Hit) && Velocity.Size() > Settings->MinSpeedToSlide; // there is a surface bellow player and their vel is high enought
 }
 
-UArrowComponent* VelArrow;
+UArrowComponent* arrow;
 void UAfterCutCharacterMovementComp::EnterSlide()
 {
 	SLIDELOG("-- ENTER_SLIDE --");
+	arrow = Cast<UArrowComponent>(AfterCutCharacterOwner->AddComponentByClass(UArrowComponent::StaticClass(), true, AfterCutCharacterOwner->GetTransform(), false));
+	arrow->AttachToComponent(AfterCutCharacterOwner->GetRootComponent(), FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+	arrow->bHiddenInGame = false;
+	arrow->ArrowColor =  FColor::MakeRandomColor();
+	arrow->ArrowLength = 5.0f;
+	arrow->ArrowSize = 2.0f;
+	
 	
 	//SetWalkableFloorAngle(Settings->MaxFloorAngleForSlide);
 	FStepDownResult StepDownResult;
@@ -448,13 +452,15 @@ void UAfterCutCharacterMovementComp::ExitSlide()
 {
 	//SetWalkableFloorAngle(45.0f);
 	
+	arrow->DestroyComponent();
+	arrow = nullptr;
+
 	SLIDELOG("-- EXIT_SLIDE --")
 }
 
 void UAfterCutCharacterMovementComp::PhysSlide(float deltaTime, int32 Iterations)
 {
 	if (deltaTime < MIN_TICK_TIME) {
-		GEngine->AddOnScreenDebugMessage(1588, 3.0f, FColor::Red, FString("deltaTime was less then MIN_TICK_TIME" ));
 		ExitSlide();
 		return;
 	}
@@ -462,9 +468,6 @@ void UAfterCutCharacterMovementComp::PhysSlide(float deltaTime, int32 Iterations
 	FHitResult SlideHit;
 	if (!UpdatedComponent->IsQueryCollisionEnabled() || !CanSlide(SlideHit))
 	{
-		GEngine->AddOnScreenDebugMessage(1588, 3.0f, FColor::Red, 
-			FString::Printf(TEXT("IsQueryCollisionEnabled() is %s and CanSlide() is %s"), 
-				!UpdatedComponent->IsQueryCollisionEnabled() ? TEXT("true") :  TEXT("false"), !CanSlide(SlideHit) ? TEXT("true") : TEXT("false") ) );
 		SetMovementMode(MOVE_Walking);
 		ExitSlide();
 		return;
@@ -501,25 +504,32 @@ void UAfterCutCharacterMovementComp::PhysSlide(float deltaTime, int32 Iterations
 		//Velocity = Velocity.GetSafeNormal() * (Velocity.Size() - 1.0f);
 		//Velocity = Velocity + ((-Settings->SlideFriction) * Velocity) * remainingTime; 
 		
-		FVector NewV = UKismetMathLibrary::ProjectVectorOnToPlane(Velocity, OldFloor.HitResult.Normal);
-		float D = NewV.GetSafeNormal() | GetGravityDirection();
+		FVector projectVelOnFloor = UKismetMathLibrary::ProjectVectorOnToPlane(Velocity, OldFloor.HitResult.ImpactNormal);
+		float dotVelGrav = projectVelOnFloor.GetSafeNormal() | GetGravityDirection();
 
 		FVector before = Velocity;
 		
-		Velocity = D > 0.0f ? Velocity.GetSafeNormal() * (Velocity.Size() + ((1.0f + Settings->SlideSlopeGain) + (D * Settings->SlideSlopeAngleMulti) ) * deltaTime) 
-					: Velocity.GetSafeNormal() * (Velocity.Size() - ((1.0f - Settings->SlideSlopeLoss) + ((1.0f - D) * Settings->SlideSlopeAngleMulti) ) * deltaTime) ;
-
-		Velocity = UKismetMathLibrary::RotateAngleAxis(Velocity, AfterCutCharacterOwner->GetMovementVector2D().X , UpdatedComponent->GetUpVector());
+		FVector alterdVel = dotVelGrav > 0.0f ? Velocity.GetSafeNormal() * (Velocity.Size() + ((1.0f + Settings->SlideSlopeGain) + (dotVelGrav * Settings->SlideSlopeAngleMulti) ) * deltaTime) 
+					: Velocity.GetSafeNormal() * (Velocity.Size() - ((1.0f - Settings->SlideSlopeLoss) + ((1.0f - dotVelGrav) * Settings->SlideSlopeAngleMulti) ) * deltaTime) ;
 		
-		//Velocity += GetGravityDirection() * GravityScale;
-		//CalcVelocity(deltaTime, Settings->SlideFriction,false, GetMaxBrakingDeceleration());
+		// realign the velocity to the slope dir
+		FVector downDir = UKismetMathLibrary::Cross_VectorVector(UKismetMathLibrary::Cross_VectorVector(-GetGravityDirection(), OldFloor.HitResult.ImpactNormal), OldFloor.HitResult.ImpactNormal);
+		if (!downDir.IsNearlyZero())
+		{
+			alterdVel = UKismetMathLibrary::RotateAngleAxis(alterdVel, UKismetMathLibrary::FMin(4.5f, UKismetMathLibrary::DegAcos(downDir | alterdVel) ) ,OldFloor.HitResult.ImpactNormal);
+		}
+		
+		
+		//Velocity = UKismetMathLibrary::RotateAngleAxis(Velocity, AfterCutCharacterOwner->GetMovementVector2D().X , UpdatedComponent->GetUpVector());
+		
+		Velocity = alterdVel;
 		
 		FVector after = Velocity;
 		
-		FVector a = before - after;
+		FVector diff = before - after;
 		
 		GEngine->AddOnScreenDebugMessage(66, 3.0f, FColor::Cyan, 
-			FString::Printf(TEXT("the loss/gain is %f"), a.Size()));
+			FString::Printf(TEXT("the loss/gain is %f"), diff.Size()));
 		
 		// Compute move parameters
 		const FVector MoveVelocity = Velocity;
@@ -566,6 +576,116 @@ void UAfterCutCharacterMovementComp::PhysSlide(float deltaTime, int32 Iterations
 		{
 			FindFloor(UpdatedComponent->GetComponentLocation(), CurrentFloor, bZeroDelta, NULL);
 		}
+		
+		// check for ledges here
+		const bool bCheckLedges = !CanWalkOffLedges();
+		if ( bCheckLedges && !CurrentFloor.IsWalkableFloor() )
+		{
+			// calculate possible alternate movement
+			const FVector NewDelta = bTriedLedgeMove ? FVector::ZeroVector : GetLedgeMove(OldLocation, Delta, OldFloor);
+			if ( !NewDelta.IsZero() )
+			{
+				// first revert this move
+				RevertMove(OldLocation, OldBase, PreviousBaseLocation, OldFloor, false);
+
+				// avoid repeated ledge moves if the first one fails
+				bTriedLedgeMove = true;
+
+				// Try new movement direction
+				Velocity = NewDelta/timeTick;
+				remainingTime += timeTick;
+				Iterations--;
+				continue;
+			}
+			else
+			{
+				// see if it is OK to jump
+				// @todo collision : only thing that can be problem is that oldbase has world collision on
+				bool bMustJump = bZeroDelta || (OldBase == NULL || (!OldBase->IsQueryCollisionEnabled() && MovementBaseUtility::IsDynamicBase(OldBase)));
+				if ( (bMustJump || !bCheckedFall) && CheckFall(OldFloor, CurrentFloor.HitResult, Delta, OldLocation, remainingTime, timeTick, Iterations, bMustJump) )
+				{
+					return;
+				}
+				bCheckedFall = true;
+
+				// revert this move
+				RevertMove(OldLocation, OldBase, PreviousBaseLocation, OldFloor, true);
+				remainingTime = 0.f;
+				break;
+			}
+		}
+		else
+		{
+			// Validate the floor check
+			if (CurrentFloor.IsWalkableFloor())
+			{
+				if (ShouldCatchAir(OldFloor, CurrentFloor))
+				{
+					HandleWalkingOffLedge(OldFloor.HitResult.ImpactNormal, OldFloor.HitResult.Normal, OldLocation, timeTick);
+					if (IsMovingOnGround())
+					{
+						// If still walking, then fall. If not, assume the user set a different mode they want to keep.
+						StartFalling(Iterations, remainingTime, timeTick, Delta, OldLocation);
+					}
+					return;
+				}
+
+				AdjustFloorHeight();
+				SetBaseFromFloor(CurrentFloor);
+			}
+			else if (CurrentFloor.HitResult.bStartPenetrating && remainingTime <= 0.f)
+			{
+				// The floor check failed because it started in penetration
+				// We do not want to try to move downward because the downward sweep failed, rather we'd like to try to pop out of the floor.
+				FHitResult Hit(CurrentFloor.HitResult);
+				Hit.TraceEnd = Hit.TraceStart + MAX_FLOOR_DIST * -GetGravityDirection();
+				const FVector RequestedAdjustment = GetPenetrationAdjustment(Hit);
+				ResolvePenetration(RequestedAdjustment, Hit, UpdatedComponent->GetComponentQuat());
+				bForceNextFloorCheck = true;
+			}
+
+			// check if just entered water
+			if ( IsSwimming() )
+			{
+				StartSwimming(OldLocation, Velocity, timeTick, remainingTime, Iterations);
+				return;
+			}
+
+			// See if we need to start falling.
+			if (!CurrentFloor.IsWalkableFloor() && !CurrentFloor.HitResult.bStartPenetrating)
+			{
+				const bool bMustJump = bJustTeleported || bZeroDelta || (OldBase == NULL || (!OldBase->IsQueryCollisionEnabled() && MovementBaseUtility::IsDynamicBase(OldBase)));
+				if ((bMustJump || !bCheckedFall) && CheckFall(OldFloor, CurrentFloor.HitResult, Delta, OldLocation, remainingTime, timeTick, Iterations, bMustJump) )
+				{
+					return;
+				}
+				bCheckedFall = true;
+			}
+		}
+		
+		// Allow overlap events and such to change physics state and velocity
+		if (IsMovingOnGround())
+		{
+			// Make velocity reflect actual move
+			if( !bJustTeleported && !HasAnimRootMotion() && !CurrentRootMotion.HasOverrideVelocity() && timeTick >= MIN_TICK_TIME)
+			{
+				// TODO-RootMotionSource: Allow this to happen during partial override Velocity, but only set allowed axes?
+				//Velocity = (UpdatedComponent->GetComponentLocation() - OldLocation) / timeTick;
+				MaintainHorizontalGroundVelocity();
+			}
+		}
+
+		// If we didn't move at all this iteration then abort (since future iterations will also be stuck).
+		if (UpdatedComponent->GetComponentLocation() == OldLocation)
+		{
+			remainingTime = 0.f;
+			break;
+		}	
+	}
+
+	if (IsMovingOnGround())
+	{
+		MaintainHorizontalGroundVelocity();
 	}
 }
 
